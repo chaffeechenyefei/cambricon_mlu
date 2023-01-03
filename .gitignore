@@ -1,0 +1,8 @@
+build/
+build_edge/
+*.out
+gkpw/
+core.*
+model/
+model_220/
+model_270/

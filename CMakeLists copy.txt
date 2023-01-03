@@ -1,0 +1,279 @@
+cmake_minimum_required(VERSION 2.8)
+project(MODEL_CHECK)
+
+option(USE_MLU  "Build offline examples with CNRT support" ON)
+option(USE_DLL "Build sdk via lib mode" ON)
+option(USE_STATIC "Generate sdk via static mode" OFF)
+
+SET(CMAKE_BUILD_TYPE "Release")
+
+
+if(CMAKE_TOOLCHAIN_FILE) 
+  message("@@ cross compile enabled, CMAKE_TOOLCHAIN_FILE: ${CMAKE_TOOLCHAIN_FILE}")
+  set(CMAKE_BINARY_DIR ${CMAKE_SOURCE_DIR}/build_edge)
+  set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
+else()
+  set(CMAKE_BINARY_DIR ${CMAKE_SOURCE_DIR}/build)  
+  set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
+endif()
+
+if(EXISTS $ENV{NEUWARE_HOME})
+  set(NEUWARE_HOME $ENV{NEUWARE_HOME})
+else()
+  if(CMAKE_TOOLCHAIN_FILE)
+    set(NEUWARE_HOME "/usr/local/mlu220edge_neuware_v1.7.0" )
+  else()
+    set(NEUWARE_HOME "/usr/local/neuware")
+  endif()
+endif()
+
+if (CMAKE_TOOLCHAIN_FILE)
+  set(EASYDK_INCLUDE_FILES "/project/workspace/samples/CNStream220edge/easydk/include")
+  set(EASYDK_LIBS "/project/workspace/samples/CNStream220edge/build/easydk/libeasydk.so" )
+else()
+  set(EASYDK_INCLUDE_FILES "/project/workspace/samples/CNStream/easydk/include")
+  set(EASYDK_LIBS "/project/workspace/samples/CNStream/build/easydk/libeasydk.so" )
+endif()
+
+message("-- NEUWARE_HOME=${NEUWARE_HOME}")
+
+if(NOT CMAKE_TOOLCHAIN_FILE)
+  set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
+    "${NEUWARE_HOME}/cmake"
+    "${NEUWARE_HOME}/cmake/modules"
+    )
+else()
+  message("-- skip CMAKE_MODULE_PATH")
+endif()
+
+# -Wfatal-errors 出现错误的时候停止编译
+# -Werror 将警告信息当做错误显示
+# -Wall 提示警告信息
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -D_REENTRANT -Wall -Wno-sign-compare")
+if(CMAKE_TOOLCHAIN_FILE)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+  set(MLU220EDGE3RD "/usr/local/mlu220_1.7.0_3rdparty")
+else()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -Wall")
+endif()
+
+
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -pthread -fstack-protector-all -D_FORTIFY_SOURCE=2 -O2")
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -g -pthread -Wfatal-errors -fstack-protector-all -D_FORTIFY_SOURCE=2 -O2")
+if(USE_libstdcpp)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libstdc++")
+  message("-- Warning: forcing libstdc++ (controlled by USE_libstdcpp option in cmake)")
+endif()
+if($ENV{USE_ABI} MATCHES "1")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
+elseif($ENV{USE_ABI} MATCHES "0")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
+else()
+  message("-- Use default ABI settings")
+endif()
+
+message("@@ CMAKE_CXX_FLAGS = ${CMAKE_CXX_FLAGS}")
+
+
+
+# ---[ Flags
+
+# if(UNIX OR APPLE)
+#   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -Wall")
+# endif()
+# if($ENV{USE_ABI} MATCHES "1")
+#   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
+# elseif($ENV{USE_ABI} MATCHES "0")
+#   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
+# else()
+#   message("-- Use default ABI settings")
+# endif()
+
+#include and lib
+set(CNRT_INCLUDE_FILES "${NEUWARE_HOME}/include")
+list(APPEND CNRT_INCLUDE_FILES "${EASYDK_INCLUDE_FILES}")
+set(CNRT_LIB_PATHS "${NEUWARE_HOME}/lib64/libcnrt.so")
+list(APPEND CNRT_LIB_PATHS "${NEUWARE_HOME}/lib64/libcncodec.so")
+list(APPEND CNRT_LIB_PATHS "${NEUWARE_HOME}/lib64/libcndrv.so")
+list(APPEND CNRT_LIB_PATHS "${EASYDK_LIBS}")
+
+if(CMAKE_TOOLCHAIN_FILE)
+  link_directories("${NEUWARE_HOME}/lib64")
+  list(APPEND CNRT_LIB_PATHS ion jpu)
+endif()
+
+# ---[OpenCV
+if(CMAKE_TOOLCHAIN_FILE)
+  set(OpenCV_INCLUDE_DIRS ${MLU220EDGE3RD}/opencv/include)
+  list(APPEND 3RDPARTY_INCLUDE_DIRS ${OpenCV_INCLUDE_DIRS})
+  set(OpenCV_LIB_PATH ${MLU220EDGE3RD}/opencv/lib)
+  set(OpenCV_LIBS ${OpenCV_LIB_PATH}/libopencv_core.so)
+  list(APPEND OpenCV_LIBS ${OpenCV_LIB_PATH}/libopencv_imgproc.so)
+  list(APPEND OpenCV_LIBS ${OpenCV_LIB_PATH}/libopencv_highgui.so)
+  list(APPEND OpenCV_LIBS ${OpenCV_LIB_PATH}/libopencv_features2d.so)
+  list(APPEND OpenCV_LIBS ${OpenCV_LIB_PATH}/libopencv_flann.so)
+  list(APPEND OpenCV_LIBS ${OpenCV_LIB_PATH}/libopencv_imgcodecs.so)
+  list(APPEND OpenCV_LIBS ${OpenCV_LIB_PATH}/libopencv_video.so)
+  list(APPEND OpenCV_LIBS ${OpenCV_LIB_PATH}/libopencv_videoio.so)  
+  message(STATUS "opencv libraries: ${OpenCV_LIBS}")
+else()
+  set(OpenCV_FIND_QUIETLY true)
+  #find_package(OpenCV REQUIRED) //this will include opencv_ts which result in crash on centos
+  find_package(OpenCV OPTIONAL_COMPONENTS imgcodecs)
+  find_package(OpenCV OPTIONAL_COMPONENTS videoio)
+  set(optional_opencv_libs ${OpenCV_LIBS})
+  find_package(OpenCV REQUIRED core imgproc highgui features2d)
+  set(OpenCV_INCLUDE_DIRS /usr/incude)
+  list(APPEND 3RDPARTY_INCLUDE_DIRS ${OpenCV_INCLUDE_DIRS})
+  if(imgcodecs_FOUND)
+    list(APPEND OpenCV_LIBS optional_opencv_libs)
+  endif()
+    message(STATUS "opencv libraries: ${OpenCV_LIBS}")
+endif()
+
+# ---[ Google-gflags
+if(CMAKE_TOOLCHAIN_FILE)
+  set(GFLAGS_INCLUDE_DIRS ${MLU220EDGE3RD}/gflags/include)
+  set(GFLAGS_LIBRARIES ${MLU220EDGE3RD}/gflags/lib/libgflags.so)
+else()
+  include("${PROJECT_SOURCE_DIR}/cmake/FindGFlags.cmake")
+endif()
+list(APPEND COMMON_INCLUDE_FILES ${GFLAGS_INCLUDE_DIRS})
+list(APPEND COMMON_LIB_PATHS ${GFLAGS_LIBRARIES})
+
+# ---[ Google-glog
+if(CMAKE_TOOLCHAIN_FILE)
+  set(GLOG_INCLUDE_DIRS ${MLU220EDGE3RD}/glog/include)
+  set(GLOG_LIBRARIES ${MLU220EDGE3RD}/glog/lib/libglog.so)
+else()
+  include("${PROJECT_SOURCE_DIR}/cmake/FindGlog.cmake")
+endif()
+list(APPEND COMMON_INCLUDE_FILES ${GLOG_INCLUDE_DIRS})
+list(APPEND COMMON_LIB_PATHS ${GLOG_LIBRARIES})
+
+# message("common link files: ${COMMON_INCLUDE_FILES}")
+# include_directories(${COMMON_INCLUDE_FILES})
+# include_directories(${OpenCV_INCLUDE_DIRS})
+# include_directories("${PROJECT_SOURCE_DIR}")
+
+message("common link libs: ${COMMON_LIB_PATHS}")
+message("cambricon link libs: ${CNRT_LIB_PATHS}")
+
+set(INNER_COMMON_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/inner_utils")
+file(GLOB INNER_COMMON_CPP "${INNER_COMMON_INCLUDE_DIRS}/*.cpp")
+# aux_source_directory("{PROJECT_SOURCE_DIR}/inner_utils" INNER_COMMON_CPP)
+# set(INNER_COMMON_CPP "${PROJECT_SOURCE_DIR}/inner_utils/inner_basic.cpp")
+
+set(UTIL_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/utils")
+aux_source_directory("${PROJECT_SOURCE_DIR}/utils" UTIL_CPP)
+
+message( "@@ ${INNER_COMMON_CPP} ${UTIL_CPP}")
+
+# the path where we store the offline model file, which will be used in cnrt test
+add_definitions(-DUSE_MLU=True)
+if(CMAKE_TOOLCHAIN_FILE)
+  add_definitions(-DMLU220=True)
+endif()
+
+if (USE_DLL)
+  message("@@ DLL MODE ACTIVATED")
+  if (USE_STATIC)
+    add_library(face_rec STATIC face_rec.cpp ${UTIL_CPP} ${INNER_COMMON_CPP})
+  else()
+    add_library(face_rec SHARED face_rec.cpp ${UTIL_CPP} ${INNER_COMMON_CPP})
+  endif()
+  target_include_directories(face_rec PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES} )
+  target_link_libraries(face_rec pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} ${CNRT_LIB_PATHS})
+  set_target_properties(face_rec PROPERTIES PUBLIC_HEADER "face_rec.hpp" )
+
+  # if (USE_STATIC)
+  #   # add_custom_target(combined ALL COMMAND ${CMAKE_CXX_ARCHIVE_CREATE} libcombined.a $<TARGET_FILE: face_rec> )
+  #   add_custom_command(
+  #     OUTPUT libcombined.a
+  #     COMMAND ar -rcT libcombined.a $<TARGET_FILE:face_rec>
+  #     DEPENDS face_rec pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} ${CNRT_LIB_PATHS}
+  #     COMMENT "Combining libs...")
+  # endif()
+
+  add_executable(module_test test_forward_simple.cpp)
+  target_include_directories(module_test PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS})
+  target_link_libraries(module_test pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} face_rec )
+
+  message("++ FEATURE EXTRACTION TEST")
+  add_executable(extraction_test extraction_test.cpp)
+  target_include_directories(extraction_test PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS})
+  target_link_libraries(extraction_test pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} face_rec )
+
+  message("++ DETECTION TEST")
+  add_executable(detection_test detection_test.cpp)
+  target_include_directories(detection_test PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES})
+  target_link_libraries(detection_test pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} face_rec )
+
+  message("++ ANYTEST")
+  add_executable(anytest test.cpp)
+  target_include_directories(anytest PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES})
+  target_link_libraries(anytest pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} face_rec )
+
+  message("++ ANYTEST2")
+  add_executable(anytest2 test2.cpp)
+  target_include_directories(anytest2 PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES})
+  target_link_libraries(anytest2 pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} face_rec )
+
+  message("++ ANYTEST3")
+  add_executable(anytest3 test3.cpp)
+  target_include_directories(anytest3 PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES})
+  target_link_libraries(anytest3 pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} face_rec )
+
+  message("++ YOLO TEST")
+  add_executable(test_yolo test_yolo.cpp)
+  target_include_directories(test_yolo PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES})
+  target_link_libraries(test_yolo pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} face_rec )
+
+  add_executable(test_yolo_multithread test_yolo_multithread.cpp)
+  target_include_directories(test_yolo_multithread PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES})
+  target_link_libraries(test_yolo_multithread pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} face_rec )
+
+else()
+  # message("@@ CPP MODE ACTIVATED")
+  # add_executable(module_test test_forward_simple.cpp face_rec.cpp ${UTIL_CPP} ${INNER_COMMON_CPP})
+  # target_include_directories(module_test PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES} ${UTIL_INCLUDE_DIRS} ${INNER_COMMON_INCLUDE_DIRS})
+  # target_link_libraries(module_test pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} ${CNRT_LIB_PATHS} )
+
+  # message("++ FEATURE EXTRACTION TEST")
+  # add_executable(extraction_test extraction_test.cpp face_rec.cpp ${UTIL_CPP} ${INNER_COMMON_CPP})
+  # target_include_directories(extraction_test PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES} ${UTIL_INCLUDE_DIRS} ${INNER_COMMON_INCLUDE_DIRS})
+  # target_link_libraries(extraction_test pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} ${CNRT_LIB_PATHS} )
+
+  # message("++ DETECTION TEST")
+  # add_executable(detection_test detection_test.cpp face_rec.cpp ${UTIL_CPP} ${INNER_COMMON_CPP})
+  # target_include_directories(detection_test PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES} ${UTIL_INCLUDE_DIRS} ${INNER_COMMON_INCLUDE_DIRS})
+  # target_link_libraries(detection_test pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} ${CNRT_LIB_PATHS} )
+
+  # message("++ ANYTEST")
+  # add_executable(anytest test.cpp face_rec.cpp ${UTIL_CPP} ${INNER_COMMON_CPP})
+  # target_include_directories(anytest PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES} ${UTIL_INCLUDE_DIRS} ${INNER_COMMON_INCLUDE_DIRS})
+  # target_link_libraries(anytest pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} ${CNRT_LIB_PATHS} )
+
+  # message("++ ANYTEST2")
+  # add_executable(anytest2 test2.cpp face_rec.cpp ${UTIL_CPP} ${INNER_COMMON_CPP})
+  # target_include_directories(anytest2 PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES} ${UTIL_INCLUDE_DIRS} ${INNER_COMMON_INCLUDE_DIRS})
+  # target_link_libraries(anytest2 pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} ${CNRT_LIB_PATHS} )
+
+  # message("++ ANYTEST3")
+  # add_executable(anytest3 test3.cpp face_rec.cpp ${UTIL_CPP} ${INNER_COMMON_CPP})
+  # target_include_directories(anytest3 PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES} ${UTIL_INCLUDE_DIRS} ${INNER_COMMON_INCLUDE_DIRS})
+  # target_link_libraries(anytest3 pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} ${CNRT_LIB_PATHS} )
+
+  # message("++ YOLO TEST")
+  # add_executable(test_yolo test_yolo.cpp face_rec.cpp ${UTIL_CPP} ${INNER_COMMON_CPP})
+  # target_include_directories(test_yolo PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES} ${UTIL_INCLUDE_DIRS} ${INNER_COMMON_INCLUDE_DIRS})
+  # target_link_libraries(test_yolo pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} ${CNRT_LIB_PATHS} )
+
+  # add_executable(test_yolo_multithread test_yolo_multithread.cpp face_rec.cpp ${UTIL_CPP} ${INNER_COMMON_CPP})
+  # target_include_directories(test_yolo_multithread PRIVATE ${COMMON_INCLUDE_FILES} ${OpenCV_INCLUDE_DIRS} ${CNRT_INCLUDE_FILES} ${UTIL_INCLUDE_DIRS} ${INNER_COMMON_INCLUDE_DIRS})
+  # target_link_libraries(test_yolo_multithread pthread ${COMMON_LIB_PATHS} ${OpenCV_LIBS} ${CNRT_LIB_PATHS} )
+endif()
+
+
+
